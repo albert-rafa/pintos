@@ -319,6 +319,16 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
+/* Auxiliary function to keep the sleeping list ordered */
+static bool 
+wakeup_less (const struct list_elem *a, const struct list_elem *b, void *)
+{
+  struct thread *t1 = list_entry(a, struct thread, elem);
+  struct thread *t2 = list_entry(b, struct thread, elem);
+
+  return t1->wakeup_tick < t2->wakeup_tick;
+}
+
 /* Blocks current thread and puts it in the sleeping list */
 void 
 thread_sleep (int64_t wakeup_tick) 
@@ -331,7 +341,7 @@ thread_sleep (int64_t wakeup_tick)
   old_level = intr_disable ();
   
   cur->wakeup_tick = wakeup_tick;
-  list_push_back(&sleeping_list, &cur->elem);
+  list_insert_ordered(&sleeping_list, &cur->elem, wakeup_less, NULL);
   thread_block();
   
   intr_set_level (old_level);
@@ -344,20 +354,17 @@ thread_wakeup (int64_t current_tick) {
 
   old_level = intr_disable ();
 
-  struct list_elem *e = list_begin(&sleeping_list);
-  while (e != list_end(&sleeping_list)) {
-    struct list_elem *next = list_next(e);
+  while(!list_empty(&sleeping_list)) {
+    struct list_elem *e = list_front(&sleeping_list);
     struct thread *t = list_entry(e, struct thread, elem);
+
+    if (t->wakeup_tick > current_tick) break;
 
     ASSERT (t->status == THREAD_BLOCKED);
 
-    if (t->wakeup_tick <= current_tick) {
-      t->wakeup_tick = 0;
-      list_remove(e);
-      thread_unblock(t);
-    }
-
-    e = next;
+    t->wakeup_tick = 0;
+    list_pop_front(&sleeping_list);
+    thread_unblock(t);
   }
 
   intr_set_level (old_level);
