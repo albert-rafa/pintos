@@ -34,6 +34,21 @@ priority_less (const struct list_elem *a, const struct list_elem *b, void *)
   return t1->priority > t2->priority;
 }
 
+void 
+handle_priority (struct thread *t) {
+  if (!list_empty(&ready_list)) {
+    struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+  
+    if (t->priority > highest->priority) {
+      if (intr_context()) {
+        intr_yield_on_return();
+      } else {
+        thread_yield();
+      }
+    }
+  }
+}
+
 /* List of processes that are sleeping, that is, blocked
    for a certain number of ticks */
 static struct list sleeping_list;
@@ -226,6 +241,8 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  handle_priority(t);
+
   return tid;
 }
 
@@ -376,6 +393,7 @@ thread_wakeup (int64_t current_tick) {
     t->wakeup_tick = 0;
     list_pop_front(&sleeping_list);
     thread_unblock(t);
+    handle_priority(t);
   }
 
   intr_set_level (old_level);
@@ -402,7 +420,27 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  enum intr_level old_level;
+  old_level = intr_disable ();
+
+  struct thread *cur = thread_current();
+
+  cur->priority = new_priority;
+  list_sort(&ready_list, priority_less, NULL);
+  // handle_priority(cur);
+  if (!list_empty(&ready_list)) {
+    struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
+  
+    if (cur->priority < highest->priority) {
+      if (intr_context()) {
+        intr_yield_on_return();
+      } else {
+        thread_yield();
+      }
+    }
+  }
+
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
