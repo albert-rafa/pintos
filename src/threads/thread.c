@@ -24,9 +24,29 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* Auxiliary function to keep the ready list ordered by priority */
+static bool
+priority_less (const struct list_elem *a, const struct list_elem *b, void *)
+{
+  struct thread *t1 = list_entry(a, struct thread, elem);
+  struct thread *t2 = list_entry(b, struct thread, elem);
+
+  return t1->priority > t2->priority;
+}
+
 /* List of processes that are sleeping, that is, blocked
    for a certain number of ticks */
 static struct list sleeping_list;
+
+/* Auxiliary function to keep the sleeping list ordered by wakeup_tick */
+static bool 
+wakeup_less (const struct list_elem *a, const struct list_elem *b, void *)
+{
+  struct thread *t1 = list_entry(a, struct thread, elem);
+  struct thread *t2 = list_entry(b, struct thread, elem);
+
+  return t1->wakeup_tick < t2->wakeup_tick;
+}
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -239,11 +259,12 @@ thread_unblock (struct thread *t)
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
-
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+
+  list_insert_ordered (&ready_list, &t->elem, priority_less, NULL);
   t->status = THREAD_READY;
+  
   intr_set_level (old_level);
 }
 
@@ -313,20 +334,10 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, priority_less, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
-}
-
-/* Auxiliary function to keep the sleeping list ordered */
-static bool 
-wakeup_less (const struct list_elem *a, const struct list_elem *b, void *)
-{
-  struct thread *t1 = list_entry(a, struct thread, elem);
-  struct thread *t2 = list_entry(b, struct thread, elem);
-
-  return t1->wakeup_tick < t2->wakeup_tick;
 }
 
 /* Blocks current thread and puts it in the sleeping list */
