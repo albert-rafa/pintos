@@ -36,15 +36,11 @@ priority_less (const struct list_elem *a, const struct list_elem *b, void *)
 
 void 
 handle_priority (struct thread *t) {
-  if (!list_empty(&ready_list)) {
-    struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
-  
-    if (t->priority > highest->priority) {
-      if (intr_context()) {
-        intr_yield_on_return();
-      } else {
-        thread_yield();
-      }
+  if (t->priority > thread_current()->priority) {
+    if (intr_context()) {
+      intr_yield_on_return();
+    } else {
+      thread_yield();
     }
   }
 }
@@ -423,15 +419,13 @@ thread_set_priority (int new_priority)
   enum intr_level old_level;
   old_level = intr_disable ();
 
-  struct thread *cur = thread_current();
-
-  cur->priority = new_priority;
+  thread_current()->priority = new_priority;
   list_sort(&ready_list, priority_less, NULL);
-  // handle_priority(cur);
+
   if (!list_empty(&ready_list)) {
     struct thread *highest = list_entry(list_front(&ready_list), struct thread, elem);
   
-    if (cur->priority < highest->priority) {
+    if (new_priority < highest->priority) {
       if (intr_context()) {
         intr_yield_on_return();
       } else {
