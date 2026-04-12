@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -103,6 +104,9 @@ struct thread
 
     /* Tick in which the thread should wake up */
     int64_t wakeup_tick;
+
+    struct semaphore wait_sema;
+    struct thread *parent;
   };
 
 /* If false (default), use round-robin scheduler.

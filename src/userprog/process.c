@@ -44,10 +44,6 @@ process_execute (const char *file_name)
   strlcpy(fn_cmd, file_name, PGSIZE);
   if (fn_cmd != NULL) cmd = strtok_r(fn_cmd, " ", &save_ptr);
 
-  printf("\n\n[process_execute] file_name: %s", file_name);
-  printf("\n\n[process_execute] fn: %s", fn);
-  printf("\n\n[process_execute] fn_cmd: %s", fn_cmd);
-
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (cmd, PRI_DEFAULT, start_process, fn);
   if (tid == TID_ERROR)
@@ -70,7 +66,6 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  printf("\n\n[start_process] file_name: %s\n", file_name);
   success = load (file_name, &if_.eip, &if_.esp);
 
 
@@ -99,11 +94,10 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int 
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while(true) {
-    thread_yield();
-  }
+  struct thread *t = find_thread_by_tid(child_tid);
+  if (t != NULL) sema_down(&t->wait_sema);
   return -1;
 }
 
@@ -322,7 +316,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
-  printf("\n\n[load] file_name: %s\n", file_name);
   /* Set up stack. */
   if (!setup_stack (esp, file_name))
     goto done;
@@ -460,9 +453,6 @@ setup_stack (void **esp, const char *file_name)
     return false;
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  printf("\n\nfile_name: %s", file_name);
-  printf("\nfn_copy: %s", fn_copy);
-
   char *argv[128];
   int argc = 0;
   char *token, *save_ptr;
@@ -472,12 +462,6 @@ setup_stack (void **esp, const char *file_name)
        token = strtok_r(NULL, " ", &save_ptr)) {
     argv[argc++] = token;
   }
-
-  printf("argc = %d\n", argc);
-  for (int i = 0; i < argc; i++) {
-      printf("argv[%d] = %s\n", i, argv[i]);
-  }
-  printf("\n\n");
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
@@ -522,9 +506,6 @@ setup_stack (void **esp, const char *file_name)
         // Endereço de retorno
         *esp -= sizeof(void*);
         *(void**)(*esp) = 0;
-        
-        // Print teste
-        hex_dump((uintptr_t)*esp, *esp, 128, true);
       }
       else {
         palloc_free_page (kpage);

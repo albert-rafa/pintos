@@ -187,6 +187,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  t->parent = thread_current();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -205,6 +206,8 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+
+  sema_init(&t->wait_sema, 0);
 
   return tid;
 }
@@ -291,6 +294,11 @@ thread_exit (void)
   process_exit ();
 #endif
 
+  struct thread *cur = thread_current();
+  if (cur->parent != NULL) {
+    sema_up(&thread_current()->wait_sema);
+  }
+
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
@@ -299,6 +307,7 @@ thread_exit (void)
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
+
 }
 
 /* Yields the CPU.  The current thread is not put to sleep and
@@ -639,3 +648,17 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+struct thread *
+find_thread_by_tid (tid_t tid) {
+  struct list_elem *e = list_begin(&all_list);
+  while (e != list_end(&all_list)) {
+    struct thread *t = list_entry(e, struct thread, allelem);
+
+    if (tid == t->tid) return t;
+
+    e = list_next(e);
+  }
+
+  return NULL;
+}
