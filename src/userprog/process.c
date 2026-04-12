@@ -15,6 +15,7 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+// #include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
@@ -28,20 +29,30 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  char *fn;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  fn = palloc_get_page (0);
+  if (fn == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  strlcpy (fn, file_name, PGSIZE);
+
+  char *save_ptr, *cmd;
+  char *fn_cmd = palloc_get_page (0);
+  strlcpy(fn_cmd, file_name, PGSIZE);
+  if (fn_cmd != NULL) cmd = strtok_r(fn_cmd, " ", &save_ptr);
+
+  printf("\n\n[process_execute] file_name: %s", file_name);
+  printf("\n\n[process_execute] fn: %s", fn);
+  printf("\n\n[process_execute] fn_cmd: %s", fn_cmd);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (cmd, PRI_DEFAULT, start_process, fn);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn); 
+  palloc_free_page(fn_cmd);
   return tid;
 }
 
@@ -59,7 +70,9 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+  printf("\n\n[start_process] file_name: %s\n", file_name);
   success = load (file_name, &if_.eip, &if_.esp);
+
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -85,9 +98,12 @@ start_process (void *file_name_)
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int
+int 
 process_wait (tid_t child_tid UNUSED) 
 {
+  while(true) {
+    thread_yield();
+  }
   return -1;
 }
 
@@ -195,7 +211,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -222,10 +238,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  char *save_ptr;
+  char *fn_cmd = palloc_get_page (0);
+  strlcpy(fn_cmd, file_name, PGSIZE);
+  char *cmd = strtok_r(fn_cmd, " ", &save_ptr);
+
+  file = filesys_open (cmd);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", cmd);
       goto done; 
     }
 
@@ -301,8 +322,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
         }
     }
 
+  printf("\n\n[load] file_name: %s\n", file_name);
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name))
     goto done;
 
   /* Start address. */
@@ -313,6 +335,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
  done:
   /* We arrive here whether the load is successful or not. */
   file_close (file);
+  palloc_free_page(fn_cmd);
   return success;
 }
 
@@ -427,20 +450,88 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *file_name) 
 {
   uint8_t *kpage;
   bool success = false;
+
+  char *fn_copy = palloc_get_page (0);
+  if (fn_copy == NULL)
+    return false;
+  strlcpy (fn_copy, file_name, PGSIZE);
+
+  printf("\n\nfile_name: %s", file_name);
+  printf("\nfn_copy: %s", fn_copy);
+
+  char *argv[128];
+  int argc = 0;
+  char *token, *save_ptr;
+  int i = 0;
+  for (token = strtok_r(fn_copy, " ", &save_ptr);
+       token != NULL;
+       token = strtok_r(NULL, " ", &save_ptr)) {
+    argv[argc++] = token;
+  }
+
+  printf("argc = %d\n", argc);
+  for (int i = 0; i < argc; i++) {
+      printf("argv[%d] = %s\n", i, argv[i]);
+  }
+  printf("\n\n");
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
+      if (success) {
         *esp = PHYS_BASE;
-      else
+        
+        // Empilhar argumentos
+        void *arg_addresses[128];
+        for (int i = argc-1; i>=0; i--) {
+          *esp -= strlen(argv[i]) + 1;
+          memcpy(*esp, argv[i], strlen(argv[i]) + 1);
+          arg_addresses[i] = *esp;
+        }
+        
+        // Alinhamento
+        while ((uintptr_t)*esp % 4 != 0) {
+          *esp -= 1;
+          *(uint8_t *)(*esp) = 0;
+        }
+        
+        // Fim dos argumentos
+        *esp -= sizeof(char *);
+        *(char **)(*esp) = NULL;
+        
+        // Empilhar endereços
+        for (int i = argc-1; i>=0; i--) {
+          *esp -= sizeof(char*);
+          *(char **)(*esp) = arg_addresses[i];
+        }
+        
+        // Empilhar endereço de argv
+        char **argv_ptr = *esp;
+        *esp -= sizeof(char **);
+        *(char ***)(*esp) = argv_ptr;
+        
+        // Empilhar argc
+        *esp -= sizeof(int);
+        *(int*)(*esp) = argc;
+        
+        // Endereço de retorno
+        *esp -= sizeof(void*);
+        *(void**)(*esp) = 0;
+        
+        // Print teste
+        hex_dump((uintptr_t)*esp, *esp, 128, true);
+      }
+      else {
         palloc_free_page (kpage);
+      }
     }
+
+  palloc_free_page(fn_copy);
   return success;
 }
 

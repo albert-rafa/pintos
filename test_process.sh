@@ -6,6 +6,9 @@ CUR_DIR=$(pwd)
 
 DEFAULT_TESTS=(
   args-none
+  args-single
+  args-many
+  args-multiple
 )
 
 if [ $# -eq 0 ]; then
