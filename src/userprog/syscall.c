@@ -42,13 +42,13 @@ static void exit (int status) {
   cur->exit_status = status; // Usar no wait()
   if (cur->parent != NULL) sema_up(&cur->wait_sema);
 
-  printf("%s: exit(%d)\n", thread_current()->name, status);
+  printf("%s: exit(%d)\n", cur->name, status);
 
   thread_exit();
 }
 
 static void
-syscall_handler (struct intr_frame *f UNUSED) 
+syscall_handler (struct intr_frame *f) 
 {
   int *args = (int*)f->esp;
   switch (args[0]) {
