@@ -20,7 +20,7 @@ static int write (int fd, const void *buffer, unsigned size) {
     return size;
   }
 
-  // TODO: Falta considerar (fd != 1)
+  // TODO: (fd != 1) -> Writes on file 
 
   return -1;
 }
@@ -39,7 +39,7 @@ static int wait (tid_t tid) {
 static void exit (int status) {
   struct thread *cur = thread_current();
 
-  cur->exit_status = status;
+  cur->exit_status = status; // Usar no wait()
   if (cur->parent != NULL) sema_up(&cur->wait_sema);
 
   printf("%s: exit(%d)\n", thread_current()->name, status);

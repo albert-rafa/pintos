@@ -9,6 +9,14 @@ DEFAULT_TESTS=(
   args-single
   args-many
   args-multiple
+  args-dbl-space
+  exit
+  write-bad-fd
+  write-bad-ptr
+  write-boundary
+  write-normal
+  write-stdin
+  write-zero
 )
 
 if [ $# -eq 0 ]; then
