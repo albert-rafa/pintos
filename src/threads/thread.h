@@ -105,8 +105,12 @@ struct thread
     /* Tick in which the thread should wake up */
     int64_t wakeup_tick;
 
+   //  TODO: organizar esse código
     struct semaphore wait_sema;
     struct thread *parent;
+    int exit_status;
+
+    // TODO: implementar child processes
   };
 
 /* If false (default), use round-robin scheduler.
