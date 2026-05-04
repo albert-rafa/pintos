@@ -22,6 +22,13 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+struct exec_helper {
+  char *filename;
+  struct child_thread *child;
+  struct semaphore load_sema;
+  bool load_success;
+};
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -31,13 +38,27 @@ process_execute (const char *file_name)
 {
   char *fn;
   tid_t tid;
+  struct exec_helper helper;
+
+  struct child_thread *ct = malloc(sizeof (struct child_thread));
+  if (ct == NULL) return TID_ERROR;
+  ct->is_alive = true;
+  ct->was_waited = false;
+  ct->exit_status = -1; // Status padrão caso dê erro
+  sema_init(&ct->wait_sema, 0);
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn = palloc_get_page (0);
-  if (fn == NULL)
+  if (fn == NULL) {
+    free(ct);
     return TID_ERROR;
+  }
   strlcpy (fn, file_name, PGSIZE);
+
+  sema_init(&helper.load_sema, 0);
+  helper.filename = fn;
+  helper.child = ct;
 
   char *save_ptr, *cmd;
   char *fn_cmd = palloc_get_page (0);
@@ -45,19 +66,33 @@ process_execute (const char *file_name)
   if (fn_cmd != NULL) cmd = strtok_r(fn_cmd, " ", &save_ptr);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (cmd, PRI_DEFAULT, start_process, fn);
-  if (tid == TID_ERROR)
+  tid = thread_create (cmd, PRI_DEFAULT, start_process, &helper);
+  if (tid == TID_ERROR) {
     palloc_free_page (fn); 
+    free(ct);
+    return TID_ERROR;
+  }
   palloc_free_page(fn_cmd);
+  return tid;
+
+  sema_down(&helper.load_sema);
+
+  if (!helper.load_success) {
+    return TID_ERROR;
+  }
+
+  ct->tid = tid;
+  list_push_back(&thread_current()->child_list, &ct->elem_child_thread);
+
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *helper_)
 {
-  char *file_name = file_name_;
+  struct exec_helper *helper = helper_; 
   struct intr_frame if_;
   bool success;
 
@@ -66,11 +101,17 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  
+  success = load (helper->filename, &if_.eip, &if_.esp);
+  helper->load_success = success;
+  if (success) {
+    thread_current()->my_child_thread = helper->child;
+  }
 
+  sema_up(&helper->load_sema);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (helper->filename);
   if (!success) 
     thread_exit ();
 
