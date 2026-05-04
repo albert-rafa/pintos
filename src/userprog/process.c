@@ -73,7 +73,6 @@ process_execute (const char *file_name)
     return TID_ERROR;
   }
   palloc_free_page(fn_cmd);
-  return tid;
 
   sema_down(&helper.load_sema);
 
@@ -137,9 +136,28 @@ start_process (void *helper_)
 int 
 process_wait (tid_t child_tid) 
 {
-  struct thread *t = find_thread_by_tid(child_tid);
-  if (t != NULL) sema_down(&t->wait_sema);
-  return -1;
+  struct child_thread *ct = find_child(child_tid);
+  int status = -1;
+
+  if (ct == NULL) {
+    return -1;
+  }
+
+  if (ct->was_waited) {
+    return -1;
+  }
+  ct->was_waited = true;
+
+  if (ct->is_alive) {
+    sema_down(&ct->wait_sema);
+  }
+
+  status = ct->exit_status;
+
+  list_remove(&ct->elem_child_thread);
+  free (ct);
+
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -147,6 +165,14 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  struct child_thread *ct = cur->my_child_thread;
+
+  if (ct != NULL) {
+    ct->exit_status = cur->exit_status;
+    ct->is_alive = false;
+    sema_up(&ct->wait_sema);
+  }
+
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
