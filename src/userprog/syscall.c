@@ -4,6 +4,7 @@
 #include <console.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -27,9 +28,7 @@ static int write (int fd, const void *buffer, unsigned size) {
 
 // Waits for a child process (thread) tid and retrieves the child's exit status.
 static int wait (tid_t tid) {
-  int status = process_wait(tid);
-  printf("\nstatus = %d\n", status);
-  return status;
+  return process_wait(tid);
 }
 
 // Terminates the current user program, returning status to the kernel. If the process's parent waits for it, this is 
@@ -58,6 +57,7 @@ static void halt (void) {
   shutdown_power_off();
 }
 
+// Retorna o tid da thread
 static int exec (const char *cmd_line) {
   return process_execute(cmd_line);
 }
@@ -66,12 +66,20 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   int *args = (int*)f->esp;
+
+  if (args == NULL 
+      || !is_user_vaddr(args) 
+      || pagedir_get_page(thread_current()->pagedir, args) == NULL
+    ) {
+    exit(-1);
+  };
+
   switch (args[0]) {
     case SYS_WRITE:
       f->eax = write(args[1], (const void *) args[2], (unsigned) args[3]);
       break;
     case SYS_WAIT:
-      wait(args[1]);
+      f->eax = wait(args[1]);
       break;
     case SYS_EXIT:
       exit(args[1]);
@@ -80,7 +88,8 @@ syscall_handler (struct intr_frame *f)
       halt();
       break;
     case SYS_EXEC:
-      f->eax = exec(args[1]);
+      int response = exec(args[1]);
+      f->eax = response;
       break;
   }
 
