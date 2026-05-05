@@ -187,7 +187,6 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-  t->parent = thread_current();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -206,8 +205,6 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
-  sema_init(&t->wait_sema, 0);
 
   return tid;
 }
@@ -529,6 +526,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->child_list);
   t->my_child_thread = NULL;
 
+  list_init(&t->fd_list);
+  t->next_fd = 2; // 0/1 para STDIN/STDOUT 
+
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -663,13 +663,27 @@ find_child (tid_t tid) {
   return NULL;
 }
 
-struct thread *
-find_thread_by_tid (tid_t tid) {
-  struct list_elem *e = list_begin(&all_list);
-  while (e != list_end(&all_list)) {
-    struct thread *t = list_entry(e, struct thread, allelem);
+int thread_add_file (struct file *f) {
+  struct file_descriptor *fd_struct = malloc(sizeof (struct file_descriptor));
+  if (!fd_struct) return -1;
 
-    if (tid == t->tid) return t;
+  struct thread *t = thread_current();
+  fd_struct->file = f;
+  fd_struct->fd = t->next_fd++;
+
+  list_push_back(&t->fd_list, &fd_struct->elem);
+
+  return fd_struct->fd;
+}
+
+struct file_descriptor *thread_get_file_from_fd (int fd) {
+  struct thread *t = thread_current();
+  struct list_elem *e = list_begin(&t->fd_list);
+  while(e != list_end(&t->fd_list)) {
+    struct file_descriptor *fd_struct = list_entry(e, struct file_descriptor, elem);
+    if (fd_struct->fd == fd) {
+      return fd_struct;
+    }
 
     e = list_next(e);
   }

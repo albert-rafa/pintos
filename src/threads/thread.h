@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include "filesys/filesys.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -82,6 +83,12 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 
+   struct file_descriptor {
+      int fd;
+      struct file *file; // Arquivo aberto
+      struct list_elem elem; 
+   };
+
    struct child_thread {
       tid_t tid; // ID do processo filho
       int exit_status;
@@ -107,6 +114,7 @@ typedef int tid_t;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+
 #endif
 
     /* Owned by thread.c. */
@@ -115,15 +123,12 @@ typedef int tid_t;
     /* Tick in which the thread should wake up */
     int64_t wakeup_tick;
 
-   //  TODO: organizar esse código
-    struct semaphore wait_sema;
-    struct thread *parent;
     int exit_status;
-    
     struct list child_list;
     struct child_thread *my_child_thread;
 
-    // TODO: implementar child processes
+    struct list fd_list;
+    int next_fd;
   };
 
 /* If false (default), use round-robin scheduler.
@@ -164,5 +169,10 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+struct child_thread *find_child (tid_t tid);
+
+int thread_add_file (struct file *f);
+struct file_descriptor *thread_get_file_from_fd (int fd);
 
 #endif /* threads/thread.h */

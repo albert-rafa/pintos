@@ -1,10 +1,14 @@
-#include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <console.h>
+#include "userprog/syscall.h"
+#include "userprog/pagedir.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "filesys/filesys.h"
+
+struct lock filesys_lock; 
 
 static void syscall_handler (struct intr_frame *);
 
@@ -12,10 +16,39 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+
+  lock_init(&filesys_lock);
+}
+
+static bool is_address_valid (const void *addr) {
+  if (addr == NULL 
+      || !is_user_vaddr(addr) 
+      || pagedir_get_page(thread_current()->pagedir, addr) == NULL) 
+  {
+    return false;
+  };
+
+  return true;
+}
+
+static bool is_buffer_valid (const void *buffer, unsigned size) {
+  char *ptr = (char *) buffer;
+  for (int i = 0; i < size; i++) {
+    if (!is_address_valid(ptr)) {
+      return false;
+    }
+    ptr++;
+  }
+
+  return true;
 }
 
 // Writes size bytes from buffer to the open file fd. Returns the number of bytes actually written. fd 1 writes to the console.
 static int write (int fd, const void *buffer, unsigned size) {
+  if (!is_buffer_valid(buffer, size)) {
+    exit(-1);
+  }
+  
   if (fd == 1) {
     putbuf(buffer, size);
     return size;
@@ -49,10 +82,6 @@ static void exit (int status) {
   thread_exit();
 }
 
-// static bool create (const char* file, unsigned initial_size) {
-
-// }
-
 static void halt (void) {
   shutdown_power_off();
 }
@@ -62,17 +91,54 @@ static int exec (const char *cmd_line) {
   return process_execute(cmd_line);
 }
 
+static bool create (const char *file, unsigned initial_size) {
+  if (!is_address_valid(file)) {
+    exit(-1);
+  }
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_create(file, initial_size);
+  lock_release(&filesys_lock);
+
+  return success;
+} 
+
+static bool remove (const char *file) {
+  if (!is_address_valid(file)) {
+    exit(-1);
+  }
+
+  lock_acquire(&filesys_lock);
+  bool success = filesys_remove(file);
+  lock_release(&filesys_lock);
+
+  return success;
+}
+
+static int open (const char *file) {
+  if (!is_address_valid(file)) {
+    exit(-1);
+  }
+
+  lock_acquire(&filesys_lock);
+  struct file *opened_file = filesys_open(file);
+  lock_release(&filesys_lock);
+
+  if (opened_file == NULL) {
+    return -1;
+  }
+
+  return thread_add_file(&opened_file);
+}
+
 static void
 syscall_handler (struct intr_frame *f) 
 {
   int *args = (int*)f->esp;
 
-  if (args == NULL 
-      || !is_user_vaddr(args) 
-      || pagedir_get_page(thread_current()->pagedir, args) == NULL
-    ) {
+  if (!is_address_valid(args)) {
     exit(-1);
-  };
+  }
 
   switch (args[0]) {
     case SYS_WRITE:
@@ -88,8 +154,16 @@ syscall_handler (struct intr_frame *f)
       halt();
       break;
     case SYS_EXEC:
-      int response = exec(args[1]);
-      f->eax = response;
+      f->eax = exec(args[1]);
+      break;
+    case SYS_CREATE:
+      f->eax = create(args[1], args[2]);
+      break;
+    case SYS_REMOVE:
+      f->eax = remove(args[1]);
+      break;
+    case SYS_OPEN:
+      f->eax = open(args[1]);
       break;
   }
 
